@@ -1,0 +1,80 @@
+// Complemento de Outlook para trasladar correos a la agenda
+// Usa Office.js y Microsoft Graph API
+
+Office.onReady(() => {
+    Office.context.mailbox.item.addHandlerAsync(Office.EventType.ItemSend, onSendHandler);
+});
+
+function onSendHandler(event) {
+    console.log("Correo detectado");
+}
+
+function addToCalendar() {
+    Office.context.mailbox.item.body.getAsync(Office.CoercionType.Text, (result) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+            let emailContent = result.value;
+            let extractedDate = extractDate(emailContent);
+            createCalendarEvent(extractedDate, "Tarea programada desde correo");
+        }
+    });
+}
+
+function extractDate(text) {
+    let dateRegex = /(\d{1,2}\/\d{1,2}\/\d{4})|(\d{1,2} de [a-zA-Z]+ de \d{4})/g;
+    let daysRegex = /(\d{1,2}) días/gi;
+    
+    let match = text.match(dateRegex);
+    if (match) return match[0];
+    
+    let daysMatch = text.match(daysRegex);
+    if (daysMatch) {
+        let days = parseInt(daysMatch[0]);
+        let futureDate = new Date();
+        futureDate.setDate(futureDate.getDate() + days);
+        return futureDate.toISOString();
+    }
+    return null;
+}
+
+async function createCalendarEvent(date, title) {
+    if (!date) {
+        console.log("No se encontró una fecha válida.");
+        return;
+    }
+    
+    let accessToken = await getAccessToken();
+    if (!accessToken) {
+        console.log("No se pudo obtener el token de acceso.");
+        return;
+    }
+    
+    let event = {
+        subject: title,
+        start: { dateTime: date, timeZone: "UTC" },
+        end: { dateTime: date, timeZone: "UTC" },
+    };
+    
+    fetch("https://graph.microsoft.com/v1.0/me/events", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(event)
+    })
+    .then(response => response.json())
+    .then(data => console.log("Evento creado en Outlook Calendar:", data))
+    .catch(error => console.error("Error al crear el evento:", error));
+}
+
+async function getAccessToken() {
+    return new Promise((resolve, reject) => {
+        Office.context.auth.getAccessTokenAsync({ allowSignInPrompt: true }, (result) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+                resolve(result.value);
+            } else {
+                reject(null);
+            }
+        });
+    });
+}
